@@ -24,7 +24,17 @@ jobs:
         id: get_version
         run: |
           VERSION=$(jq -r '.version' package.json)
-          echo "::set-output name=version::$VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: tag_exists
+        run: |
+          TAG=v${{ steps.get_version.outputs.version }}
+          if git ls-remote --tags origin | grep "refs/tags/$TAG$"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract latest CHANGELOG entry
         id: changelog
@@ -33,9 +43,10 @@ jobs:
           CHANGELOG_ESCAPED=$(echo "$CHANGELOG_CONTENT" | sed ':a;N;$!ba;s/\n/%0A/g')
           echo "Extracted latest release notes from CHANGELOG.md:" 
           echo -e "$CHANGELOG_CONTENT" 
-          echo "::set-output name=content::$CHANGELOG_ESCAPED"
+          echo "content=$CHANGELOG_ESCAPED" >> $GITHUB_OUTPUT
 
       - name: Create GitHub release
+        if: steps.tag_exists.outputs.exists == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -47,10 +58,11 @@ jobs:
               tag_name: `v${{ steps.get_version.outputs.version }}`,
               name: `v${{ steps.get_version.outputs.version }}`,
               body: changelog,
-            })
-            console.log(`Created release ${release.data.html_url}`)
+            });
+            console.log(`Created release ${release.data.html_url}`);
 
       - name: Upload package to GitHub release
+        if: steps.tag_exists.outputs.exists == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: package
@@ -61,6 +73,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trigger Docker build workflow
+        if: steps.tag_exists.outputs.exists == 'false'
         uses: actions/github-script@v7
         with:
           script: |
@@ -69,4 +82,4 @@ jobs:
               repo: context.repo.repo,
               workflow_id: 'docker-build.yaml',
               ref: 'v${{ steps.get_version.outputs.version }}',
-            })
+            });
